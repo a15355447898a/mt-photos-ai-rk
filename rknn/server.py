@@ -9,8 +9,8 @@ import numpy as np
 import cv2
 import asyncio
 from pydantic import BaseModel
-from rapidocr_onnxruntime import RapidOCR
 import clip as clip
+from ocr import TextSystem
 
 
 # import onnxruntime as ort
@@ -28,18 +28,30 @@ server_restart_time = int(os.getenv("SERVER_RESTART_TIME", "300"))
 env_use_dml = False
 env_auto_load_txt_modal = os.getenv("AUTO_LOAD_TXT_MODAL", "off") == "on" # 是否自动加载CLIP文本模型，开启可以优化第一次搜索时的响应速度,文本模型占用700多m内存
 
-rapid_ocr = None
+rknn_ocr = None
 clip_img_model = None
 clip_txt_model = None
 restart_timer = None
+
+# RKNN OCR model paths
+DET_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'ppocrv4_det.rknn')
+REC_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'ppocrv4_rec.rknn')
+CHARACTER_DICT_PATH = os.path.join(os.path.dirname(__file__), 'models', 'ppocr_keys_v1.txt')
+RKNN_TARGET = os.getenv("RKNN_TARGET", "rk3588")
 
 class ClipTxtRequest(BaseModel):
     text: str
 
 def load_ocr_model():
-    global rapid_ocr
-    if rapid_ocr is None:
-        rapid_ocr = RapidOCR(rec_use_dml=env_use_dml , det_use_dml=env_use_dml)
+    global rknn_ocr
+    if rknn_ocr is None:
+        rknn_ocr = TextSystem(
+            det_model_path=DET_MODEL_PATH,
+            rec_model_path=REC_MODEL_PATH,
+            character_dict_path=CHARACTER_DICT_PATH,
+            target=RKNN_TARGET,
+            drop_score=0.5
+        )
 
 def load_clip_img_model():
     global clip_img_model
@@ -83,14 +95,15 @@ def to_fixed(num):
     return str(round(num, 2))
 
 
-def trans_result(result):
+def trans_result(filter_boxes, filter_rec_res):
     texts = []
     scores = []
     boxes = []
-    if result is None:
+    if filter_boxes is None or filter_rec_res is None:
         return {'texts': texts, 'scores': scores, 'boxes': boxes}
-    for res_i in result:
-        dt_box = res_i[0]
+
+    for dt_box, rec_result in zip(filter_boxes, filter_rec_res):
+        text, score = rec_result[0]
         box = {
             'x': to_fixed(dt_box[0][0]),
             'y': to_fixed(dt_box[0][1]),
@@ -98,8 +111,8 @@ def trans_result(result):
             'height': to_fixed(dt_box[2][1] - dt_box[0][1])
         }
         boxes.append(box)
-        texts.append(res_i[1])
-        scores.append(f"{res_i[2]:.2f}")
+        texts.append(text)
+        scores.append(f"{score:.2f}")
     return {'texts': texts, 'scores': scores, 'boxes': boxes}
 
 
@@ -153,10 +166,11 @@ async def process_image(file: UploadFile = File(...), api_key: str = Depends(ver
         height, width, _ = img.shape
         if width > 10000 or height > 10000:
             return {'result': [], 'msg': 'height or width out of range'}
-        _result = rapid_ocr(img)
-        result = trans_result(_result[0])
+
+        # Run RKNN OCR
+        filter_boxes, filter_rec_res = rknn_ocr.run(img)
+        result = trans_result(filter_boxes, filter_rec_res)
         del img
-        del _result
         return {'result': result}
     except Exception as e:
         print(e)

@@ -2,7 +2,7 @@
 
 本项目是 [MT-Photos/mt-photos-ai](https://github.com/MT-Photos/mt-photos-ai) 的 RKNN 移植版本，旨在让相关 AI 任务能够运行在 Rockchip NPU 硬件上。
 
-- 基于PaddleOCR实现的文本识别(OCR)接口
+- 基于PaddleOCR实现的文本识别(OCR)接口，利用 RKNN 进行加速。
 - 基于Chinese-CLIP（OpenAI CLIP模型的中文版本）实现的图片、文本提取特征接口，利用 RKNN 进行加速。
 
 
@@ -17,12 +17,15 @@
 
 ### 打包Docker镜像
 
-先得去`https://github.com/a15355447898a/mt-photos-ai-rk/releases/tag/0.0`把两个模型下载到`mt-photos-ai-rk/rknn/utils/`
-
 ```bash
 # 在x86机器上使用qemu构建镜像并导出
 sudo docker buildx build --platform linux/arm64 -t mt-photos-ai-rk:latest -f rknn/Dockerfile . --output type=dock
 er,dest=mt-photos-ai-rk.tar
+```
+
+```bash
+# 在arm机器上打包
+sudo docker build -t mt-photos-ai-rknn:latest -f rknn/Dockerfile .
 ```
 
 ### 运行Docker容器
@@ -53,8 +56,8 @@ services:
 
 ### 环境要求
 
-- Python 3.8+
-- Rockchip NPU 驱动已正确安装
+- Python 3.8
+- Rockchip NPU 驱动已正确安装 (注意版本)
 - RKNN Toolkit Lite 2
 
 ### 步骤
@@ -87,15 +90,17 @@ INFO:     Uvicorn running on http://0.0.0.0:8060 (Press CTRL+C to quit)
 
 > **模型文件说明:**
 >
-> CLIP RKNN 模型 (`vit-b-16.img.fp32.rknn`, `vit-b-16.txt.fp32.rknn`) 已内置在 `rknn/utils` 目录下。
+> CLIP RKNN 模型 (`vit-b-16.img.fp32.rknn`, `vit-b-16.txt.fp32.rknn`) 已下载并放置在 `rknn/utils` 目录下。
+>
+> 从[这里](https://github.com/a15355447898a/mt-photos-ai-rk/releases/tag/0.0)下载。
+>
+> OCR模型已经放置在 `rknn/models` 目录下。
 
 ## API
 
-API 接口与原项目保持一致。
-
 ### /check
 
-检测服务是否可用，及api-key是否正确
+检测服务是否可用，及api-key是否正确。
 
 ```bash
 curl --location --request POST 'http://127.0.0.1:8060/check' \
@@ -112,7 +117,48 @@ curl --location --request POST 'http://127.0.0.1:8060/check' \
 
 ### /ocr
 
-**注意：当前 RKNN 版本暂未实现 OCR 功能。**
+文字识别。
+
+```bash
+curl --location --request POST 'http://127.0.0.1:8060/ocr' \
+--header 'api-key: api_key' \
+--form 'file=@"/path_to_file/test.jpg"'
+```
+
+**response:**
+
+- result.texts : 识别到的文本列表
+- result.scores : 为识别到的文本对应的置信度分数，1为100%
+- result.boxes : 识别到的文本位置，x,y为左上角坐标，width,height为框的宽高
+
+```json
+{
+  "result": {
+    "texts": [
+      "识别到的文本1",
+      "识别到的文本2"
+    ],
+    "scores": [
+      "0.98",
+      "0.97"
+    ],
+    "boxes": [
+      {
+        "x": "4.0",
+        "y": "7.0",
+        "width": "283.0",
+        "height": "21.0"
+      },
+      {
+        "x": "7.0",
+        "y": "34.0",
+        "width": "157.0",
+        "height": "23.0"
+      }
+    ]
+  }
+}
+```
 
 ### /clip/img
 

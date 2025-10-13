@@ -30,8 +30,11 @@ COPY rknn/ .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Set environment variable for RKNN target platform
+ENV RKNN_TARGET=rk3588
+
 # Expose the port the application will run on
-EXPOSE 8000
+EXPOSE 8060
 
 # Command to run the application
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8060"]
