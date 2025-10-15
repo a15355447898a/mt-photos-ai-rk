@@ -33,7 +33,7 @@ sudo docker build -t mt-photos-ai-rknn:latest -f rknn/Dockerfile .
 ```yaml
 services:
     mt-photos-ai-rk:
-        image: mt-photos-ai-rk:latest
+        image: a15355447898a/mt-photos-ai-rknn:latest
         container_name: mt-photos-ai-rk
         hostname: mt-photos-ai-rk
         environment:
