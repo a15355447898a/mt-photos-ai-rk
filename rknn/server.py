@@ -34,6 +34,27 @@ clip_img_models = queue.Queue()
 clip_txt_models = queue.Queue()
 restart_timer = None
 
+
+class LazyModelSlot:
+    """延迟加载模型，避免启动时占用额外内存，同时保持队列可用。"""
+
+    def __init__(self, factory, preload=False):
+        self._factory = factory
+        self._model = None
+        self._lock = threading.Lock()
+        if preload:
+            self.ensure_loaded()
+
+    def ensure_loaded(self):
+        if self._model is None:
+            with self._lock:
+                if self._model is None:
+                    self._model = self._factory()
+        return self._model
+
+    def get_model(self):
+        return self.ensure_loaded()
+
 # RKNN OCR model paths
 DET_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'ppocrv4_det.rknn')
 REC_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'ppocrv4_rec.rknn')
@@ -64,10 +85,12 @@ async def startup_event():
         img_model = clip.load_img_model(use_dml=env_use_dml, core_mask=core_mask)
         clip_img_models.put(img_model)
         
-        # CLIP text model
-        if env_auto_load_txt_modal:
-            txt_model = clip.load_txt_model(use_dml=env_use_dml, core_mask=core_mask)
-            clip_txt_models.put(txt_model)
+        # CLIP text model（懒加载保证队列不为空）
+        txt_model_slot = LazyModelSlot(
+            lambda mask=core_mask: clip.load_txt_model(use_dml=env_use_dml, core_mask=mask),
+            preload=env_auto_load_txt_modal
+        )
+        clip_txt_models.put(txt_model_slot)
 
 
 @app.middleware("http")
@@ -195,16 +218,17 @@ async def clip_process_image(file: UploadFile = File(...), api_key: str = Depend
 
 @app.post("/clip/txt")
 async def clip_process_txt(request:ClipTxtRequest, api_key: str = Depends(verify_header)):
-    clip_txt_model = clip_txt_models.get()
+    clip_txt_slot = clip_txt_models.get()
     try:
         text = request.text
+        clip_txt_model = clip_txt_slot.get_model()
         result = await predict(clip.process_txt, text, clip_txt_model)
         return {'result': ["{:.16f}".format(vec) for vec in result]}
     except Exception as e:
         print(e)
         return {'result': [], 'msg': str(e)}
     finally:
-        clip_txt_models.put(clip_txt_model)
+        clip_txt_models.put(clip_txt_slot)
 
 async def predict(predict_func, inputs,model):
     return await asyncio.get_running_loop().run_in_executor(None, predict_func, inputs,model)
