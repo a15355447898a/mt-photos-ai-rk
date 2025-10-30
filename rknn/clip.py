@@ -25,18 +25,15 @@ mean = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
 std = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
 
 # 图像预处理函数保持不变
+# 1) 预处理：返回 NHWC/uint8，别转 NCHW
 def single_image_transform(image, image_size):
-    image = Image.fromarray(np.uint8(image)).resize((image_size, image_size), Image.BICUBIC)
-    image = np.array(Image.fromarray(np.uint8(image)).convert('RGB'))
-    image = np.array(image, dtype=np.float32) / 255.0
-    image = (image - mean) / std
-    return image.astype(np.float32)
+    img = Image.fromarray(np.uint8(image)).convert('RGB').resize((image_size, image_size), Image.BICUBIC)
+    return np.array(img, dtype=np.uint8)  # (H, W, C), RGB, 0..255
 
 def image_processor(image_batch, image_size=224):
-    transformed_batch = [single_image_transform(img, image_size) for img in image_batch]
-    transformed_batch = np.array(transformed_batch, dtype=np.float32)
-    transformed_batch = np.transpose(transformed_batch, (0, 3, 1, 2))
-    return transformed_batch
+    batch = [single_image_transform(img, image_size) for img in image_batch]
+    x = np.array(batch, dtype=np.uint8)   # (N, H, W, C)  <-- 关键：保持 NHWC
+    return x
 
 # 文本预处理函数保持不变
 def tokenize_numpy(texts: Union[str, List[str]], context_length: int = 52) -> np.ndarray:
@@ -68,11 +65,12 @@ def load_img_model(use_dml=None, core_mask=7): # use_dml 参数不再需要，�
     print("<-- RKNN Image Model Loaded")
     return engine
 
+# 2) 推理：按 NHWC 喂给 RKNN（可以不写 data_format，显式写更稳）
 def process_image(img, img_model):
-    inputs = image_processor([img], image_size=IMG_SIZE)
-    # --- 修改点: 使用 rknnlite 推理 ---
-    outputs = img_model.inference(inputs=[inputs])
-    return outputs[0][0] # 返回第一个 batch 的 embedding
+    x = image_processor([img], image_size=IMG_SIZE)   # (1, 224, 224, 3) uint8
+    outputs = img_model.inference(inputs=[x], data_format='nhwc')
+    feat = np.array(outputs[0]).reshape(-1)           # 期望 512 维
+    return feat
 
 # --- 修改点: 实现 rknnlite 的模型加载 ---
 def load_txt_model(use_dml=None, core_mask=7): # use_dml 参数不再需要
