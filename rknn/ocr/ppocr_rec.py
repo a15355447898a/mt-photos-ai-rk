@@ -35,8 +35,8 @@ PRE_PROCESS_CONFIG = [
 
 
 class TextRecognizer:
-    def __init__(self, model_path, character_dict_path, target='rk3588') -> None:
-        self.model = RKNN_model_container(model_path, target=target)
+    def __init__(self, model_path, character_dict_path, target='rk3588', core_mask=-1) -> None:
+        self.model = RKNN_model_container(model_path, target=target, core_mask=core_mask)
         self.preprocess_funct = []
         for item in PRE_PROCESS_CONFIG:
             for key in item:

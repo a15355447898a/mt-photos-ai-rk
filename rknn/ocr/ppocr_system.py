@@ -24,9 +24,9 @@ DET_INPUT_SHAPE = [480, 480] # h,w
 
 
 class TextSystem(object):
-    def __init__(self, det_model_path, rec_model_path, character_dict_path, target='rk3588', drop_score=0.5):
-        self.text_detector = ppocr_det.TextDetector(det_model_path, target=target)
-        self.text_recognizer = ppocr_rec.TextRecognizer(rec_model_path, character_dict_path, target=target)
+    def __init__(self, det_model_path, rec_model_path, character_dict_path, target='rk3588', drop_score=0.5, core_mask=-1):
+        self.text_detector = ppocr_det.TextDetector(det_model_path, target=target, core_mask=core_mask)
+        self.text_recognizer = ppocr_rec.TextRecognizer(rec_model_path, character_dict_path, target=target, core_mask=core_mask)
         self.drop_score = drop_score
 
     def run(self, img):

@@ -2,7 +2,7 @@ from rknnlite.api import RKNNLite
 
 
 class RKNN_model_container():
-    def __init__(self, model_path, target=None, device_id=None) -> None:
+    def __init__(self, model_path, target=None, device_id=None, core_mask=RKNNLite.NPU_CORE_AUTO) -> None:
         rknn = RKNNLite()
 
         # Direct Load RKNN Model
@@ -12,7 +12,7 @@ class RKNN_model_container():
         if target==None:
             ret = rknn.init_runtime()
         else:
-            ret = rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_AUTO)
+            ret = rknn.init_runtime(core_mask=core_mask)
         if ret != 0:
             print('Init runtime environment failed')
             exit(ret)

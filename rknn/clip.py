@@ -57,11 +57,11 @@ def tokenize_numpy(texts: Union[str, List[str]], context_length: int = 52) -> np
     return result
 
 # --- 修改点: 实现 rknnlite 的模型加载 ---
-def load_img_model(use_dml=None): # use_dml 参数不再需要，但保持函数签名兼容
+def load_img_model(use_dml=None, core_mask=7): # use_dml 参数不再需要，但保持函数签名兼容
     print("--> Loading RKNN Image Model")
     engine = RKNNLite()
     engine.load_rknn(img_rknn_model_path)
-    ret = engine.init_runtime(core_mask=7) # For NPU_CORE_0_1_2
+    ret = engine.init_runtime(core_mask=core_mask) # For NPU_CORE_0_1_2
     if ret != 0:
         print("Init RKNN image runtime failed.")
         exit(ret)
@@ -75,11 +75,11 @@ def process_image(img, img_model):
     return outputs[0][0] # 返回第一个 batch 的 embedding
 
 # --- 修改点: 实现 rknnlite 的模型加载 ---
-def load_txt_model(use_dml=None): # use_dml 参数不再需要
+def load_txt_model(use_dml=None, core_mask=7): # use_dml 参数不再需要
     print("--> Loading RKNN Text Model")
     engine = RKNNLite()
     engine.load_rknn(txt_rknn_model_path)
-    ret = engine.init_runtime(core_mask=7) # For NPU_CORE_0_1_2
+    ret = engine.init_runtime(core_mask=core_mask) # For NPU_CORE_0_1_2
     if ret != 0:
         print("Init RKNN text runtime failed.")
         exit(ret)

@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 import os
 import sys
 import threading
+import queue
 from fastapi import Depends, FastAPI, File, UploadFile, HTTPException, Header
 from fastapi.responses import HTMLResponse
 import uvicorn
@@ -11,7 +12,7 @@ import asyncio
 from pydantic import BaseModel
 import clip as clip
 from ocr import TextSystem
-
+from rknnlite.api import RKNNLite
 
 # import onnxruntime as ort
 # device = ort.get_device()
@@ -28,9 +29,9 @@ server_restart_time = int(os.getenv("SERVER_RESTART_TIME", "300"))
 env_use_dml = False
 env_auto_load_txt_modal = os.getenv("AUTO_LOAD_TXT_MODAL", "off") == "on" # 是否自动加载CLIP文本模型，开启可以优化第一次搜索时的响应速度,文本模型占用700多m内存
 
-rknn_ocr = None
-clip_img_model = None
-clip_txt_model = None
+ocr_models = queue.Queue()
+clip_img_models = queue.Queue()
+clip_txt_models = queue.Queue()
 restart_timer = None
 
 # RKNN OCR model paths
@@ -42,32 +43,31 @@ RKNN_TARGET = os.getenv("RKNN_TARGET", "rk3588")
 class ClipTxtRequest(BaseModel):
     text: str
 
-def load_ocr_model():
-    global rknn_ocr
-    if rknn_ocr is None:
-        rknn_ocr = TextSystem(
+@app.on_event("startup")
+async def startup_event():
+    # Initialize and populate the model queues
+    for i in range(3):
+        core_mask = [RKNNLite.NPU_CORE_0, RKNNLite.NPU_CORE_1, RKNNLite.NPU_CORE_2][i]
+        
+        # OCR model
+        ocr_model = TextSystem(
             det_model_path=DET_MODEL_PATH,
             rec_model_path=REC_MODEL_PATH,
             character_dict_path=CHARACTER_DICT_PATH,
             target=RKNN_TARGET,
-            drop_score=0.5
+            drop_score=0.5,
+            core_mask=core_mask
         )
-
-def load_clip_img_model():
-    global clip_img_model
-    if clip_img_model is None:
-        clip_img_model = clip.load_img_model(use_dml=env_use_dml)
-
-def load_clip_txt_model():
-    global clip_txt_model
-    if clip_txt_model is None:
-        clip_txt_model = clip.load_txt_model(use_dml=env_use_dml)
-
-
-@app.on_event("startup")
-async def startup_event():
-    if env_auto_load_txt_modal:
-        load_clip_txt_model()
+        ocr_models.put(ocr_model)
+        
+        # CLIP image model
+        img_model = clip.load_img_model(use_dml=env_use_dml, core_mask=core_mask)
+        clip_img_models.put(img_model)
+        
+        # CLIP text model
+        if env_auto_load_txt_modal:
+            txt_model = clip.load_txt_model(use_dml=env_use_dml, core_mask=core_mask)
+            clip_txt_models.put(txt_model)
 
 
 @app.middleware("http")
@@ -158,9 +158,9 @@ async def check_req(api_key: str = Depends(verify_header)):
 
 @app.post("/ocr")
 async def process_image(file: UploadFile = File(...), api_key: str = Depends(verify_header)):
-    load_ocr_model()
-    image_bytes = await file.read()
+    ocr_model = ocr_models.get()
     try:
+        image_bytes = await file.read()
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         height, width, _ = img.shape
@@ -168,19 +168,21 @@ async def process_image(file: UploadFile = File(...), api_key: str = Depends(ver
             return {'result': [], 'msg': 'height or width out of range'}
 
         # Run RKNN OCR
-        filter_boxes, filter_rec_res = rknn_ocr.run(img)
+        filter_boxes, filter_rec_res = ocr_model.run(img)
         result = trans_result(filter_boxes, filter_rec_res)
         del img
         return {'result': result}
     except Exception as e:
         print(e)
         return {'result': [], 'msg': str(e)}
+    finally:
+        ocr_models.put(ocr_model)
 
 @app.post("/clip/img")
 async def clip_process_image(file: UploadFile = File(...), api_key: str = Depends(verify_header)):
-    load_clip_img_model()
-    image_bytes = await file.read()
+    clip_img_model = clip_img_models.get()
     try:
+        image_bytes = await file.read()
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         result = await predict(clip.process_image, img, clip_img_model)
@@ -188,13 +190,21 @@ async def clip_process_image(file: UploadFile = File(...), api_key: str = Depend
     except Exception as e:
         print(e)
         return {'result': [], 'msg': str(e)}
+    finally:
+        clip_img_models.put(clip_img_model)
 
 @app.post("/clip/txt")
 async def clip_process_txt(request:ClipTxtRequest, api_key: str = Depends(verify_header)):
-    load_clip_txt_model()
-    text = request.text
-    result = await predict(clip.process_txt, text, clip_txt_model)
-    return {'result': ["{:.16f}".format(vec) for vec in result]}
+    clip_txt_model = clip_txt_models.get()
+    try:
+        text = request.text
+        result = await predict(clip.process_txt, text, clip_txt_model)
+        return {'result': ["{:.16f}".format(vec) for vec in result]}
+    except Exception as e:
+        print(e)
+        return {'result': [], 'msg': str(e)}
+    finally:
+        clip_txt_models.put(clip_txt_model)
 
 async def predict(predict_func, inputs,model):
     return await asyncio.get_running_loop().run_in_executor(None, predict_func, inputs,model)

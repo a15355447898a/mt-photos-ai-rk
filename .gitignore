@@ -1,13 +1,5 @@
 package.json
-openvino/model/*
-onnx/*/*.onnx
-onnx/Pipfile
-onnx/Pipfile.lock
-onnx/server.spec
-onnx/build
-onnx/dist
-openvino/utils/*.onnx
+rknn/utils/*.rknn
 .env
 .idea/
-cuda/models
 __pycache__
