@@ -5,6 +5,12 @@
 - 基于PaddleOCR实现的文本识别(OCR)接口，利用 RKNN 进行加速。
 - 基于Chinese-CLIP（OpenAI CLIP模型的中文版本）实现的图片、文本提取特征接口，利用 RKNN 进行加速。
 
+## 更新日志
+
+> * 2025/10/30
+>   * 项目现已支持三线程并行处理，能够同时调用 RK3588 芯片的三个 NPU 核心，充分利用硬件资源
+>     需要在MT-Photos中将人脸识别,文本识别任务和CLIP识别任务的并发数设置成3
+>   * 修复了之前CLIP识别结果不准确的问题，如果使用了旧版本镜像CLIP识别，需要在系统维护工具中运行 【CLIP识别】- 清空识别结果，然后重新识别所有照片
 
 ## 目录说明
 
@@ -17,11 +23,13 @@
 
 ### 打包Docker镜像
 
-```bash
-# 在x86机器上使用qemu构建镜像并导出
-sudo docker buildx build --platform linux/arm64 -t mt-photos-ai-rk:latest -f rknn/Dockerfile . --output type=dock
-er,dest=mt-photos-ai-rk.tar
-```
+打包前注意先下载模型文件,放到对应位置
+
+> **模型文件说明:**
+>
+> 从[这里](https://github.com/a15355447898a/mt-photos-ai-rk/releases/tag/0.0)下载CLIP RKNN 模型 (`vit-b-16.img.fp32.rknn`, `vit-b-16.txt.fp32.rknn`) ,放置在 `rknn/utils` 目录下
+>
+> OCR模型已经放置在 `rknn/models` 目录下
 
 ```bash
 # 在arm机器上打包
@@ -51,50 +59,6 @@ services:
 
 > - `API_AUTH_KEY` 为 MT Photos 连接时需要填写的 `api_key`。
 > - 端口 `8060` 可根据需要自行修改。
-
-## 下载源码本地运行
-
-### 环境要求
-
-- Python 3.8
-- Rockchip NPU 驱动已正确安装 (注意版本)
-- RKNN Toolkit Lite 2
-
-### 步骤
-
-1.  **安装 Python 依赖**
-    ```bash
-    cd rknn
-    pip install -r requirements.txt
-    ```
-    同时，请根据您的设备和操作系统，安装正确的 `rknn_toolkit_lite2` 版本。例如，在 aarch64 架构的系统上，可以安装 `rknn-toolkit-lite2/packages/` 目录下的 whl 包：
-    ```bash
-    pip install ../rknn-toolkit-lite2/packages/rknn_toolkit_lite2-2.3.2-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-    ```
-
-2.  **配置环境变量**
-    复制 `.env.example` 文件为 `.env`，并修改其中的 `API_AUTH_KEY`。
-
-3.  **启动服务**
-    ```bash
-    python server.py
-    ```
-
-看到以下日志，则说明服务已经启动成功：
-```bash
-INFO:     Started server process [xxxx]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8060 (Press CTRL+C to quit)
-```
-
-> **模型文件说明:**
->
-> CLIP RKNN 模型 (`vit-b-16.img.fp32.rknn`, `vit-b-16.txt.fp32.rknn`) 已下载并放置在 `rknn/utils` 目录下。
->
-> 从[这里](https://github.com/a15355447898a/mt-photos-ai-rk/releases/tag/0.0)下载。
->
-> OCR模型已经放置在 `rknn/models` 目录下。
 
 ## API
 
